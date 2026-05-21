@@ -302,13 +302,14 @@ function Option-EnableOffline {
     Write-WarningMsg "without requiring a Microsoft Account sign-in (OfflineInsiderEnroll method)."
     
     Write-Host "`nSelect your target Windows Insider Channel:" -ForegroundColor Cyan
-    Write-Host "[1] Canary Channel (Highly experimental, most frequent builds)" -ForegroundColor Gray
-    Write-Host "[2] Dev Channel (Developer focus, frequent builds)" -ForegroundColor Gray
-    Write-Host "[3] Beta Channel (Recommended for early adopters, fairly stable)" -ForegroundColor Gray
-    Write-Host "[4] Release Preview Channel (Near-final builds, safest choice)" -ForegroundColor Gray
-    Write-Host "[5] Cancel" -ForegroundColor Gray
+    Write-Host "[1] Experimental Channel (Latest consolidated channel for Dev/Canary)" -ForegroundColor Yellow
+    Write-Host "[2] Beta Channel (Recommended for early adopters, fairly stable)" -ForegroundColor Gray
+    Write-Host "[3] Release Preview Channel (Near-final builds, safest choice)" -ForegroundColor Gray
+    Write-Host "[4] Canary Channel (Legacy - For older systems/builds)" -ForegroundColor DarkGray
+    Write-Host "[5] Dev Channel (Legacy - For older systems/builds)" -ForegroundColor DarkGray
+    Write-Host "[6] Cancel" -ForegroundColor Gray
     
-    Write-Host "`nEnter selection [1-5]: " -NoNewline -ForegroundColor White
+    Write-Host "`nEnter selection [1-6]: " -NoNewline -ForegroundColor White
     $selection = Read-Host
     
     $channel = ""
@@ -318,10 +319,11 @@ function Option-EnableOffline {
     $contentType = "Mainline"
     
     switch ($selection) {
-        "1" { $channel = "CanaryChannel";  $brl = $null }
-        "2" { $channel = "Dev";            $brl = 2 }
-        "3" { $channel = "Beta";           $brl = 4 }
-        "4" { $channel = "ReleasePreview"; $brl = 8 }
+        "1" { $channel = "Experimental";   $brl = $null }
+        "2" { $channel = "Beta";           $brl = 4 }
+        "3" { $channel = "ReleasePreview"; $brl = 8 }
+        "4" { $channel = "CanaryChannel";  $brl = $null }
+        "5" { $channel = "Dev";            $brl = 2 }
         default {
             Write-Info "Operation cancelled."
             return

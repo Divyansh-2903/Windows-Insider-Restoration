@@ -19,22 +19,24 @@ Write-Host "and forces Windows Update to fetch Insider Preview builds." -Foregro
 Write-Host ""
 
 Write-Host "Select your target Insider Channel:" -ForegroundColor Yellow
-Write-Host "  [1] Canary    - Most experimental, cutting-edge features" -ForegroundColor DarkGray
-Write-Host "  [2] Dev       - Developer-focused, frequent builds" -ForegroundColor DarkGray
-Write-Host "  [3] Beta      - Recommended, relatively stable" -ForegroundColor DarkGray
-Write-Host "  [4] Release Preview - Near-final, safest choice" -ForegroundColor DarkGray
-Write-Host "  [5] Exit" -ForegroundColor DarkGray
+Write-Host "  [1] Experimental - Replaces Dev & Canary, early-stage features" -ForegroundColor Yellow
+Write-Host "  [2] Beta         - Recommended, relatively stable" -ForegroundColor DarkGray
+Write-Host "  [3] Release Preview - Near-final, safest choice" -ForegroundColor DarkGray
+Write-Host "  [4] Canary (Legacy) - For older builds/systems" -ForegroundColor DarkGray
+Write-Host "  [5] Dev (Legacy)    - For older builds/systems" -ForegroundColor DarkGray
+Write-Host "  [6] Exit" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "Enter selection [1-5]: " -NoNewline -ForegroundColor White
+Write-Host "Enter selection [1-6]: " -NoNewline -ForegroundColor White
 $choice = Read-Host
 
 $channel   = ""
 $ringId    = 0
 $branchMap = @{
-    "1" = @{ Branch = "CanaryChannel";  Ring = "External"; RingId = 11; ContentType = "Mainline" }
-    "2" = @{ Branch = "Dev";            Ring = "External"; RingId = 11; ContentType = "Mainline" }
-    "3" = @{ Branch = "Beta";           Ring = "External"; RingId = 11; ContentType = "Mainline" }
-    "4" = @{ Branch = "ReleasePreview"; Ring = "External"; RingId = 11; ContentType = "Mainline" }
+    "1" = @{ Branch = "Experimental";   Ring = "External"; RingId = 11; ContentType = "Mainline" }
+    "2" = @{ Branch = "Beta";           Ring = "External"; RingId = 11; ContentType = "Mainline" }
+    "3" = @{ Branch = "ReleasePreview"; Ring = "External"; RingId = 11; ContentType = "Mainline" }
+    "4" = @{ Branch = "CanaryChannel";  Ring = "External"; RingId = 11; ContentType = "Mainline" }
+    "5" = @{ Branch = "Dev";            Ring = "External"; RingId = 11; ContentType = "Mainline" }
 }
 
 if (-not $branchMap.ContainsKey($choice)) {
@@ -183,7 +185,7 @@ Set-Reg "HKLM:\SYSTEM\Setup\LabConfig" "BypassTPMCheck" 1 "DWord"
 Set-Reg "HKCU:\SOFTWARE\Microsoft\PCHC" "UpgradeEligibility" 1 "DWord"
 
 # --- Step 9: FlightingEnabled + BranchReadinessLevel (CRITICAL for WU to fetch flight builds) ---
-$branchLevelMap = @{ "1"=$null; "2"=2; "3"=4; "4"=8 }  # Canary=null, Dev=2, Beta=4, ReleasePreview=8
+$branchLevelMap = @{ "1"=$null; "2"=4; "3"=8; "4"=$null; "5"=2 }  # Experimental=null, Beta=4, ReleasePreview=8, Canary=null, Dev=2
 $brl = $branchLevelMap[$choice]
 Write-Host "[9/9] Setting FlightingEnabled and BranchReadinessLevel..." -ForegroundColor Yellow
 Set-Reg "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate" "FlightingEnabled" 1 "DWord"
@@ -191,7 +193,7 @@ if ($null -ne $brl) {
     Set-Reg $WU "BranchReadinessLevel" $brl "DWord"
 } else {
     Remove-ItemProperty -Path $WU -Name "BranchReadinessLevel" -Force -ErrorAction SilentlyContinue
-    Write-Host "  CLR  BranchReadinessLevel (Not used in Canary)" -ForegroundColor DarkGray
+    Write-Host "  CLR  BranchReadinessLevel (Not used in Experimental/Canary)" -ForegroundColor DarkGray
 }
 
 # --- Step 9: Flush WU cache and trigger fresh flight scan ---------------

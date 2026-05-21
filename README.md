@@ -13,7 +13,7 @@ A premium, interactive PowerShell utility designed to restore, force-enroll, and
 - **⚡ Option 1: Standard Online Enrollment**
   - Fully restores all core telemetry requirements, flight signing kernels, and settings page visibility to allow a standard Microsoft Account (MSA) sign-in.
 - **🛡️ Option 2: Offline Bypass Channel Force**
-  - Uses advanced registry signatures (`OfflineInsiderEnroll` compatibility) to force-enroll local accounts into **Canary**, **Dev**, **Beta**, or **Release Preview** channels without requiring any Microsoft Account.
+  - Uses advanced registry signatures (`OfflineInsiderEnroll` compatibility) to force-enroll local accounts into the new consolidated **Experimental** channel, **Beta**, or **Release Preview** channels (with **Canary/Dev** legacy support) without requiring any Microsoft Account.
   - Automatically writes Group Policy overrides (`ManagePreviewBuilds = 1`, `ManagePreviewBuildsPolicyValue = 1`) to ensure stripped systems successfully handshake with Microsoft flight servers.
 - **🔄 Option 3: Clean System Reversion (1-Click Restore)**
   - Instantly reverses all registry keys, flight signing kernel options, and telemetry components back to your system's original highly-optimized, secure, and private baseline.
