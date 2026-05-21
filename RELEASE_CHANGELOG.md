@@ -1,45 +1,51 @@
-# 🌀 Release v1.1.0 - Windows Insider Channel Overhaul Update
+# 🌀 Release v1.1.0: Windows Insider Overhaul Update
 
-Welcome to the **v1.1.0** release of the **Windows Insider Restoration & Management Utility**! This release brings full compatibility with Microsoft's recent 2026 Windows Insider Program channel modernization.
-
----
-
-## 🚀 Key Updates
-
-### 🪐 Support for the Consolidated "Experimental" Channel
-Microsoft has simplified the Windows Insider channels by merging the **Canary** and **Dev** channels into the new **Experimental** channel. 
-- The utility now features **Experimental Channel** as its primary option `[1]` for offline/bypass enrollment.
-- Registry mappings automatically configure `BranchName="Experimental"`, `Ring="External"`, and properly handle the new telemetry/readiness signatures.
-
-### 🛡️ Complete Legacy Compatibility
-To ensure users running older Windows 10 or 11 builds (where the new consolidated "Experimental" channel names are not yet flighted) can still enroll successfully:
-- Retained **Canary Channel (Legacy)** and **Dev Channel (Legacy)** as alternative options `[4]` and `[5]`.
-- Keeps existing readiness level configurations (`BranchReadinessLevel = 2` for legacy Dev) intact for perfect backwards compatibility.
-
-### 📦 Documentation Updates
-- Aligned `README.md` features overview with the new consolidated channel layout.
+An update to align with Microsoft's recent **Windows Insider Program** consolidation (Dev + Canary ➡️ **Experimental** channel). This release brings native support for the new consolidated channel while guaranteeing full backwards compatibility for older Windows builds via legacy mappings.
 
 ---
 
-## 🛠️ Detailed Commit History
-- `feat: support consolidated Experimental Insider channel and legacy options` (f9e215a)
+## 🚀 What's New
+
+### 🧪 Consolidated "Experimental" Channel
+* **New Primary Target**: Native support for the new consolidated **Experimental** channel (replaces the old Dev/Canary options in standard settings).
+* **Automatic Registry Mapping**: Enrolls devices into `BranchName="Experimental"`, `Ring="External"`, and `ContentType="Mainline"`.
+* **Smart GPO Cleanup**: Safely strips legacy update locks and readiness parameters (`BranchReadinessLevel = $null`) to match Microsoft's platform-agnostic flighting path.
+
+### 🛡️ Legacy Engine (Dev & Canary)
+* **Backwards Compatibility**: Retained **Canary Channel (Legacy)** and **Dev Channel (Legacy)** options.
+* **Smart Detection**: Users on older Windows 10/11 builds can still opt-in to the previous branch names (`CanaryChannel` / `Dev`) seamlessly.
+
+### 📦 Documentation & UX
+* **Clean Menu Layout**: Redesigned interactive prompt with colored high-contrast selections and an expanded 6-option flow.
+* Aligned [README.md](file:///D:/Vibe%20Coding%20projects/Windows%20Insider%20Script/README.md) details with modern Windows Insider guidelines.
 
 ---
 
-## 📋 Registry Mapping Details
+## 📋 Registry Configuration Specs
 
-| Option Selected | Registry `BranchName` | Registry `Ring` | Registry `BranchReadinessLevel` |
+<details>
+<summary><b>🔍 View Advanced Registry & GPO Mapping Rules (Click to Expand)</b></summary>
+
+Here is the exact registry scheme written in offline bypass mode:
+
+| Selected Option | Registry `BranchName` | Registry `Ring` | GPO `BranchReadinessLevel` |
 | :--- | :--- | :--- | :--- |
-| **Experimental** | `Experimental` | `External` | `$null` (Cleaned) |
-| **Beta** | `Beta` | `External` | `4` |
-| **Release Preview** | `ReleasePreview` | `External` | `8` |
-| **Canary (Legacy)** | `CanaryChannel` | `External` | `$null` (Cleaned) |
-| **Dev (Legacy)** | `Dev` | `External` | `2` |
+| **`[1] Experimental`** | `Experimental` | `External` | `$null` (Cleaned) |
+| **`[2] Beta`** | `Beta` | `External` | `4` |
+| **`[3] Release Preview`** | `ReleasePreview` | `External` | `8` |
+| **`[4] Canary (Legacy)`** | `CanaryChannel` | `External` | `$null` (Cleaned) |
+| **`[5] Dev (Legacy)`** | `Dev` | `External` | `2` |
+
+</details>
 
 ---
 
-## ⚡ How to Run
-Open **PowerShell as Administrator** and execute:
+## ⚡ Direct Execution Policy
+To run the premium restored interactive menu on your machine instantly:
+
 ```powershell
 irm "https://raw.githubusercontent.com/Divyansh-2903/Windows-Insider-Restoration/main/Manage-WindowsInsider.ps1" | iex
 ```
+
+> [!NOTE]
+> **Mandatory Action**: A system reboot is strictly required after running the enrollment tool to initialize Microsoft Flight Signing and flush your Windows Update Orchestrator cache.
