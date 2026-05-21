@@ -27,7 +27,7 @@ A premium, interactive PowerShell utility designed to restore, force-enroll, and
 Open **PowerShell as Administrator** and paste the following command:
 
 ```powershell
-irm "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO_NAME/main/Manage-WindowsInsider.ps1" | iex
+irm "https://raw.githubusercontent.com/Divyansh-2903/Windows-Insider-Restoration/main/Manage-WindowsInsider.ps1" | iex
 ```
 
 ---
