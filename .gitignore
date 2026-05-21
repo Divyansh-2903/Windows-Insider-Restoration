@@ -1,0 +1,14 @@
+# PowerShell
+.PS1
+.ps1
+.psm1
+.psd1
+
+# Temporary files
+*.tmp
+*.log
+
+# Git / IDE
+.vscode/
+.idea/
+.DS_Store
