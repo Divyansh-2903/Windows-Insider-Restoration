@@ -1,8 +1,23 @@
 # ==============================================================================
 # Manage-WindowsInsider.ps1
 # Premium Restoration & Configuration Tool for Windows Insider Program
-# Optimized for Custom OS Build environments (AtlasOS / Ghost Spectre)
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 0. SELF-ELEVATION
+# ------------------------------------------------------------------------------
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Requesting administrative privileges..." -ForegroundColor Yellow
+    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+    try {
+        Start-Process powershell.exe -ArgumentList $argList -Verb RunAs -ErrorAction Stop
+    } catch {
+        Write-Host "[-] ERROR: Failed to elevate. Please run manually as Administrator." -ForegroundColor Red
+        Write-Host "Press any key to exit..." -ForegroundColor DarkGray
+        [void]$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
+    Exit
+}
 
 $ErrorActionPreference = "Stop"
 
@@ -21,19 +36,7 @@ Write-Host -ForegroundColor Cyan @"
 "@
 
 # ------------------------------------------------------------------------------
-# 1. ELEVATION CHECK
-# ------------------------------------------------------------------------------
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "`n[!] ERROR: Administrative privileges are required to run this utility." -ForegroundColor Red
-    Write-Host "[*] Please re-launch PowerShell as Administrator." -ForegroundColor Yellow
-    Write-Host "Press any key to exit..." -ForegroundColor DarkGray
-    [void]$Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    Exit
-}
-
-# ------------------------------------------------------------------------------
-# 2. DEFINITIONS & CONSTANTS
+# 1. DEFINITIONS & CONSTANTS
 # ------------------------------------------------------------------------------
 $SELFHOST_PATH = "HKLM:\SOFTWARE\Microsoft\WindowsSelfHost"
 $APPLICABILITY_PATH = "$SELFHOST_PATH\Applicability"
@@ -64,6 +67,23 @@ function Write-ErrorMsg ($msg) {
     Write-Host "[-] ERROR: $msg" -ForegroundColor Red
 }
 
+function Take-Ownership ($path) {
+    try {
+        $key = $path.Replace("HKLM:", "HKEY_LOCAL_MACHINE").Replace("HKCU:", "HKEY_CURRENT_USER")
+        $owner = [Security.Principal.NTAccount]"Administrators"
+        $acl = Get-Acl $path
+        $acl.SetOwner($owner)
+        Set-Acl $path $acl
+        
+        $rule = New-Object Security.AccessControl.RegistryAccessRule("Administrators", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        $acl.SetAccessRule($rule)
+        Set-Acl $path $acl
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 function Set-RegistryValue ($path, $name, $value, $type) {
     try {
         if (-not (Test-Path $path)) {
@@ -72,7 +92,22 @@ function Set-RegistryValue ($path, $name, $value, $type) {
         New-ItemProperty -Path $path -Name $name -Value $value -PropertyType $type -Force | Out-Null
         return $true
     } catch {
-        Write-ErrorMsg "Failed to set Registry key: $path\$name to $value ($type)"
+        if ($_.Exception.Message -match "Access to the registry key.*is denied") {
+            Write-WarningMsg "Access denied to $path. Attempting to take ownership..."
+            if (Take-Ownership $path) {
+                try {
+                    New-ItemProperty -Path $path -Name $name -Value $value -PropertyType $type -Force | Out-Null
+                    Write-Success "Successfully set value after taking ownership."
+                    return $true
+                } catch {
+                    Write-ErrorMsg "Still failed to set value after taking ownership: $_"
+                }
+            } else {
+                Write-ErrorMsg "Failed to take ownership of $path."
+            }
+        } else {
+            Write-ErrorMsg "Failed to set Registry key: $path\$name to $value ($type). Error: $_"
+        }
         return $false
     }
 }
@@ -84,6 +119,12 @@ function Remove-RegistryValue ($path, $name) {
         }
         return $true
     } catch {
+        if ($_.Exception.Message -match "Access to the registry key.*is denied") {
+            if (Take-Ownership $path) {
+                Remove-ItemProperty -Path $path -Name $name -Force -ErrorAction SilentlyContinue | Out-Null
+                return $true
+            }
+        }
         return $false
     }
 }
@@ -540,73 +581,94 @@ function Option-ShowDiagnostics {
     Write-Host "`n--- Services Status ---" -ForegroundColor Cyan
     $services = @("wisvc", "DiagTrack", "wuauserv", "UsoSvc")
     foreach ($srvName in $services) {
-        $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
-        if ($null -eq $srv) {
-            Write-Host "$($srvName): NOT FOUND (Stripped)" -ForegroundColor Red
-        } else {
-            $color = if ($srv.Status -eq "Running") { "Green" } else { "DarkYellow" }
-            $startup = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$srvName'").StartMode
-            Write-Host "$($srvName): Status = $($srv.Status) | StartupMode = $startup" -ForegroundColor $color
+        try {
+            $srv = Get-Service -Name $srvName -ErrorAction SilentlyContinue
+            if ($null -eq $srv) {
+                Write-Host "$($srvName): NOT FOUND (Stripped)" -ForegroundColor Red
+            } else {
+                $color = $(if ($srv.Status -eq "Running") { "Green" } else { "DarkYellow" })
+                # More robust way to get startup mode without CIM dependency if possible
+                $startup = "Unknown"
+                try {
+                    $startup = (Get-Service -Name $srvName).StartType
+                } catch {
+                    try {
+                        $startup = (Get-CimInstance -ClassName Win32_Service -Filter "Name='$srvName'" -ErrorAction SilentlyContinue).StartMode
+                    } catch { $startup = "Access Denied/Error" }
+                }
+                Write-Host "$($srvName): Status = $($srv.Status) | StartupMode = $startup" -ForegroundColor $color
+            }
+        } catch {
+            Write-Host "$($srvName): Error retrieving status: $_" -ForegroundColor Red
         }
     }
     
     # Check Telemetry GPOs
     Write-Host "`n--- Telemetry & GPO Policies ---" -ForegroundColor Cyan
-    $telGPO = Get-ItemProperty -Path $DATACOLLECTION_POLICIES_PATH -Name "AllowTelemetry" -ErrorAction SilentlyContinue
-    $telSys = Get-ItemProperty -Path $DATACOLLECTION_SYSTEM_PATH -Name "AllowTelemetry" -ErrorAction SilentlyContinue
-    $maxTel = Get-ItemProperty -Path $DATACOLLECTION_SYSTEM_PATH -Name "MaxTelemetryAllowed" -ErrorAction SilentlyContinue
+    function Get-RegVal ($path, $name) {
+        try {
+            if (Test-Path $path) {
+                $val = Get-ItemProperty -Path $path -Name $name -ErrorAction SilentlyContinue
+                if ($val -and ($null -ne $val.$name)) { return $val.$name }
+            }
+            return "Not Set"
+        } catch { return "Access Denied" }
+    }
+
+    $tgVal = Get-RegVal $DATACOLLECTION_POLICIES_PATH "AllowTelemetry"
+    $tsVal = Get-RegVal $DATACOLLECTION_SYSTEM_PATH "AllowTelemetry"
+    $mtVal = Get-RegVal $DATACOLLECTION_SYSTEM_PATH "MaxTelemetryAllowed"
     
-    $tgVal = if ($telGPO) { $telGPO.AllowTelemetry } else { "Not Set" }
-    $tsVal = if ($telSys) { $telSys.AllowTelemetry } else { "Not Set" }
-    $mtVal = if ($maxTel) { $maxTel.MaxTelemetryAllowed } else { "Not Set" }
-    
-    Write-Host "Telemetry Policy (GPO): $tgVal" -ForegroundColor (if ($tgVal -eq 3) { "Green" } else { "Gray" })
-    Write-Host "Telemetry Policy (System): $tsVal" -ForegroundColor (if ($tsVal -eq 3) { "Green" } else { "Gray" })
-    Write-Host "Max Telemetry Allowed: $mtVal" -ForegroundColor (if ($mtVal -eq 3 -or $mtVal -eq "Not Set") { "Green" } else { "Red" })
+    Write-Host "Telemetry Policy (GPO): $tgVal" -ForegroundColor $(if ($tgVal -eq 3) { "Green" } elseif ($tgVal -eq "Access Denied") { "Red" } else { "Gray" })
+    Write-Host "Telemetry Policy (System): $tsVal" -ForegroundColor $(if ($tsVal -eq 3) { "Green" } elseif ($tsVal -eq "Access Denied") { "Red" } else { "Gray" })
+    Write-Host "Max Telemetry Allowed: $mtVal" -ForegroundColor $(if ($mtVal -eq 3 -or $mtVal -eq "Not Set") { "Green" } else { "Red" })
 
     # Check Windows Update policies
     Write-Host "`n--- Windows Update GPO Policies ---" -ForegroundColor Cyan
     if (Test-Path $WINDOWSUPDATE_POLICIES_PATH) {
-        $mpb = Get-ItemProperty -Path $WINDOWSUPDATE_POLICIES_PATH -Name "ManagePreviewBuilds" -ErrorAction SilentlyContinue
-        $mpbp = Get-ItemProperty -Path $WINDOWSUPDATE_POLICIES_PATH -Name "ManagePreviewBuildsPolicyValue" -ErrorAction SilentlyContinue
-        $trv = Get-ItemProperty -Path $WINDOWSUPDATE_POLICIES_PATH -Name "TargetReleaseVersion" -ErrorAction SilentlyContinue
+        $mpbVal = Get-RegVal $WINDOWSUPDATE_POLICIES_PATH "ManagePreviewBuilds"
+        $mpbpVal = Get-RegVal $WINDOWSUPDATE_POLICIES_PATH "ManagePreviewBuildsPolicyValue"
+        $trvVal = Get-RegVal $WINDOWSUPDATE_POLICIES_PATH "TargetReleaseVersion"
+        $brlVal = Get-RegVal $WINDOWSUPDATE_POLICIES_PATH "BranchReadinessLevel"
         
-        $mpbVal = if ($mpb) { $mpb.ManagePreviewBuilds } else { "Not Set" }
-        $mpbpVal = if ($mpbp) { $mpbp.ManagePreviewBuildsPolicyValue } else { "Not Set" }
-        $trvVal = if ($trv) { $trv.TargetReleaseVersion } else { "Not Set" }
-        
-        Write-Host "ManagePreviewBuilds: $mpbVal" -ForegroundColor (if ($mpbVal -eq 1 -or $mpbVal -eq "Not Set") { "Green" } else { "Red" })
-        Write-Host "ManagePreviewBuildsPolicyValue: $mpbpVal" -ForegroundColor (if ($mpbpVal -eq 1 -or $mpbpVal -eq "Not Set") { "Green" } else { "Red" })
-        Write-Host "TargetReleaseVersion Lock: $trvVal" -ForegroundColor (if ($trvVal -eq "Not Set") { "Green" } else { "Yellow" })
+        Write-Host "ManagePreviewBuilds: $mpbVal" -ForegroundColor $(if ($mpbVal -eq 1 -or $mpbVal -eq "Not Set") { "Green" } else { "Red" })
+        Write-Host "ManagePreviewBuildsPolicyValue: $mpbpVal" -ForegroundColor $(if ($mpbpVal -eq 1 -or $mpbpVal -eq "Not Set") { "Green" } else { "Red" })
+        Write-Host "BranchReadinessLevel: $brlVal" -ForegroundColor $(if ($brlVal -ne "Not Set") { "Green" } else { "Gray" })
+        Write-Host "TargetReleaseVersion Lock: $trvVal" -ForegroundColor $(if ($trvVal -eq "Not Set") { "Green" } else { "Yellow" })
     } else {
         Write-Host "Windows Update Policy key does not exist (No Restrictions)." -ForegroundColor Green
     }
     
     # Check UI visibility
     Write-Host "`n--- UI Settings Page Visibility ---" -ForegroundColor Cyan
-    $exploreVal = Get-ItemProperty -Path $EXPLORER_POLICIES_PATH -Name "SettingsPageVisibility" -ErrorAction SilentlyContinue
-    $evVal = if ($exploreVal) { $exploreVal.SettingsPageVisibility } else { "None (All pages visible)" }
-    Write-Host "SettingsPageVisibility Policy: $evVal" -ForegroundColor (if ($evVal -match "windowsinsider") { "Red" } else { "Green" })
+    $evVal = Get-RegVal $EXPLORER_POLICIES_PATH "SettingsPageVisibility"
+    if ($evVal -eq "Not Set") { $evDisplay = "None (All pages visible)" } else { $evDisplay = $evVal }
+    Write-Host "SettingsPageVisibility Policy: $evDisplay" -ForegroundColor $(if ($evVal -match "windowsinsider") { "Red" } else { "Green" })
     
-    $selfHostUI = Get-ItemProperty -Path "$UI_PATH\Visibility" -Name "HideInsiderPage" -ErrorAction SilentlyContinue
-    $shVal = if ($selfHostUI) { $selfHostUI.HideInsiderPage } else { "Not Set" }
-    Write-Host "HideInsiderPage Registry Override: $shVal" -ForegroundColor (if ($shVal -eq 1) { "Red" } else { "Green" })
+    $shVal = Get-RegVal "$UI_PATH\Visibility" "HideInsiderPage"
+    Write-Host "HideInsiderPage Registry Override: $shVal" -ForegroundColor $(if ($shVal -eq 1) { "Red" } else { "Green" })
 
     # Check SelfHost Configuration
     Write-Host "`n--- SelfHost Active Config ---" -ForegroundColor Cyan
-    $tf = Get-ItemProperty -Path $SELFHOST_PATH -Name "TestFlags" -ErrorAction SilentlyContinue
-    $tfVal = if ($tf) { "0x" + "{0:X}" -f $tf.TestFlags } else { "Not Set" }
-    Write-Host "SelfHost TestFlags: $tfVal" -ForegroundColor (if ($tfVal -eq "0x20") { "Green" } else { "Gray" })
+    $tfValRaw = Get-RegVal $SELFHOST_PATH "TestFlags"
+    $tfVal = $(if ($tfValRaw -is [int]) { "0x" + "{0:X}" -f $tfValRaw } else { $tfValRaw })
+    Write-Host "SelfHost TestFlags: $tfVal" -ForegroundColor $(if ($tfVal -eq "0x20") { "Green" } else { "Gray" })
     
     if (Test-Path $APPLICABILITY_PATH) {
-        $appBranch = Get-ItemProperty -Path $APPLICABILITY_PATH -Name "BranchName" -ErrorAction SilentlyContinue
-        $appRing = Get-ItemProperty -Path $APPLICABILITY_PATH -Name "Ring" -ErrorAction SilentlyContinue
-        $abVal = if ($appBranch) { $appBranch.BranchName } else { "Not Set" }
-        $arVal = if ($appRing) { $appRing.Ring } else { "Not Set" }
-        Write-Host "Registered Branch: $abVal | Ring: $arVal" -ForegroundColor (if ($abVal -ne "Not Set") { "Green" } else { "Gray" })
+        $abVal = Get-RegVal $APPLICABILITY_PATH "BranchName"
+        $arVal = Get-RegVal $APPLICABILITY_PATH "Ring"
+        $ctVal = Get-RegVal $APPLICABILITY_PATH "ContentType"
+        Write-Host "Registered Branch: $abVal" -ForegroundColor $(if ($abVal -ne "Not Set" -and $abVal -ne "Access Denied") { "Green" } else { "Gray" })
+        Write-Host "Registered Ring: $arVal" -ForegroundColor $(if ($arVal -ne "Not Set" -and $arVal -ne "Access Denied") { "Green" } else { "Gray" })
+        Write-Host "Content Type: $ctVal" -ForegroundColor $(if ($ctVal -ne "Not Set" -and $ctVal -ne "Access Denied") { "Green" } else { "Gray" })
     } else {
         Write-Host "Applicability key does not exist." -ForegroundColor Gray
     }
+
+    # Check Windows Update Flighting
+    Write-Host "`n--- Windows Update Flighting ---" -ForegroundColor Cyan
+    $flVal = Get-RegVal "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate" "FlightingEnabled"
+    Write-Host "FlightingEnabled: $flVal" -ForegroundColor $(if ($flVal -eq 1) { "Green" } else { "Gray" })
     
     Write-Host "`n---------------------------------------------------"
     Write-Host "Press any key to return to menu..." -ForegroundColor DarkGray
